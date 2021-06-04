@@ -203,10 +203,6 @@ func (c *client) publishEvents(events []publisher.Event) ([]publisher.Event, err
 }
 
 func (c *client) sendEvents(events []publisher.Event, isJob bool) ([]publisher.Event, error) {
-	go func() {
-		c.sendOutputEvents(events)
-	}()
-
 	send, rest, err := c.pickSendEvents(events)
 	if err != nil {
 		return events, errors.Wrap(err, "fail to pick send events")
@@ -242,6 +238,10 @@ func (c *client) sendEvents(events []publisher.Event, isJob bool) ([]publisher.E
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return events, errors.Errorf("request %s response status code %v is not success", requestID, resp.StatusCode)
 	}
+	// TODO need refactor
+	go func() {
+		c.sendOutputEvents(send)
+	}()
 	return rest, nil
 }
 
