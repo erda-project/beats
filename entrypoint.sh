@@ -22,4 +22,4 @@ if [ "$FILEBEAT_CONFIG_PATH" != '' ]; then
 	cfg_path=$FILEBEAT_CONFIG_PATH
 fi
 
-./filebeat -c "$cfg_path" -e
+./filebeat -c "$cfg_path" -e --httpprof localhost:6060
