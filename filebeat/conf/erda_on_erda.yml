@@ -1,0 +1,90 @@
+# 日志
+logging:
+  level: ${LOG_LEVEL:error}
+  to_stderr: true
+filebeat.registry:
+  path: ${REGISTRY_FILE_PATH:/data/spot/filebeat/data/registry}
+  # 老registry文件路径
+  migrate_file: ${MIGRATE_FILE_PATH:/data/spot/filebeat/data/registry/log_tail/}
+filebeat.inputs:
+  - type: container
+    monitoring: false
+    enabled: true
+    paths: "${INPUTS_CONTAINER_PATH:/var/lib/docker/containers/*/*.log*}"
+    stream: all
+    encoding: utf-8
+    ignore_older: 24h
+    max_bytes: 51200
+    # 只要包含时间文本和日志等级文本，则认为是日志行
+    multiline.patterns:
+      - '(.*?)(\d{4}-\d{2}-\d{2}(\s|T)\d{2}:\d{2}:\d{2})(.*?)([Aa]lert|ALERT|[Tt]race|TRACE|[Dd]ebug|DEBUG|DEBU|[Nn]otice|NOTICE|[Ii]nfo|INFO|[Ww]arn(?:ing)?|WARN(?:ING)?|[Ee]rr(?:or)?|ERR(?:OR)?|[Cc]rit(?:ical)?|CRIT(?:ICAL)?|[Ff]atal|FATAL|[Ss]evere|SEVERE|[Ee]merg(?:ency)?|EMERG(?:ENCY){1})(.*?)'
+      - '(.*?)([Aa]lert|ALERT|[Tt]race|TRACE|[Dd]ebug|DEBUG|DEBU|[Nn]otice|NOTICE|[Ii]nfo|INFO|[Ww]arn(?:ing)?|WARN(?:ING)?|[Ee]rr(?:or)?|ERR(?:OR)?|[Cc]rit(?:ical)?|CRIT(?:ICAL)?|[Ff]atal|FATAL|[Ss]evere|SEVERE|[Ee]merg(?:ency)?|EMERG(?:ENCY){1})(.*?)(\d{4}-\d{2}-\d{2}(\s|T)\d{2}:\d{2}:\d{2})(.*?)'
+    multiline.negate: false
+    multiline.match: after
+    multiline.max_lines: 500
+    multiline.timeout: 1s
+    close_inactive: 10m
+    close_removed: true
+    close_timeout: 30m
+    clean_removed: true
+queue:
+  mem:
+    events: ${QUEUE_MEM_EVENTS:1024}
+    flush.min_events: ${QUEUE_MEM_FLUSH_MIN_EVENTS:512}
+    flush.timeout: ${QUEUE_MEM_FLUSH_TIMEOUT:1s}
+processors:
+  - add_terminus_metadata:
+      host: ${DOCKER_SOCK_PATH:unix:///var/run/docker.sock}
+      all_log_analyse: ${FILEBEAT_ALL_LOG_ANALYSE:false}
+      monitor_log_collector_addr: ${MONITOR_LOG_COLLECTOR:}
+      job_id_key: ${OUTPUT_TERMINUS_JOB_ID_KEY:TERMINUS_DEFINE_TAG}
+      output_collector_key: ${ADD_TERMINUS_METADATA_OUTPUT_COLLECTOR_KEY:"MONITOR_LOG_COLLECTOR"}
+      default_tags: ${FILEBEAT_DEFAULT_ENV_TAGS:"DICE_CLUSTER_NAME"}
+      tag_keys: ${OUTPUT_TERMINUS_TAG_KEYS:"TERMINUS_DEFINE_TAG,TERMINUS_KEY,MESOS_TASK_ID,DICE_ORG_ID,DICE_ORG_NAME,DICE_PROJECT_ID,DICE_PROJECT_NAME,DICE_APPLICATION_ID,DICE_APPLICATION_NAME,DICE_RUNTIME_ID,DICE_RUNTIME_NAME,DICE_SERVICE_NAME,DICE_WORKSPACE,DICE_COMPONENT,TERMINUS_LOG_KEY,MONITOR_LOG_KEY,DICE_CLUSTER_NAME,io.kubernetes.pod.name,io.kubernetes.pod.namespace,io.kubernetes.container.name"}
+      label_keys: ${ADD_TERMINUS_METADATA_LABEL_KEYS:"MONITOR_LOG_OUTPUT,MONITOR_LOG_OUTPUT_CONFIG"}
+  - parse_message:
+      fields: ["input.type.container"]
+  - parse_kafka_connector:
+      fields: ["input.type.kafka"]
+  - parse_kube_apiserver_audit:
+      fields: ["input.type.kube_audit"]
+      file_name: ${PARSE_KUBE_APISERVER_AUDIT_FILE_NAME:"kube-audit.log"}
+      cluster_key: ${PARSE_KUBE_APISERVER_AUDIT_CLUSTER_KEY:"DICE_CLUSTER_NAME"}
+  # for erda on erda
+  - drop_fields:
+      when:
+        equals:
+          terminus.tags.DICE_ORG_NAME: ${ERDA_ON_ERDA_ORG_NAME:"erda"}
+      fields: ["terminus.tags.DICE_ORG_NAME", "terminus.tags.dice_org_name"]
+      ignore_missing: true
+
+output.collector:
+  hosts: ${OUTPUT_TERMINUS_HOSTS:http://collector.default.svc.cluster.local:7076}
+  worker: 1
+  job_path: ${OUTPUT_TERMINUS_JOB_PATH:/collect/logs/job}
+  container_path: ${OUTPUT_TERMINUS_CONTAINER_PATH:/collect/logs/container}
+  auth_username: ${COLLECTOR_AUTH_USERNAME:}
+  auth_password: ${COLLECTOR_AUTH_PASSWORD:}
+  params:
+  headers:
+  method: ${OUTPUT_TERMINUS_METHOD:POST}
+  ssl:
+  keep_alive: ${OUTPUT_TERMINUS_KEEP_ALIVE:30s}
+  timeout: ${OUTPUT_TERMINUS_TIMEOUT:60s}
+  output:
+    url: ${OUTPUT_TERMINUS_OUTPUT_URL:}
+    method: "POST"
+    keep_alive: "30s"
+    timeout: "60s"
+    compress_level: 9
+  bulk_max_size: 1024
+  max_retries: -1
+  backoff:
+    init: "1s"
+    max: "60s"
+  load_balance: true
+  compress_level: 9
+  limiter:
+    threshold: ${OUTPUT_TERMINUS_LIMITER_THRESHOLD:1048576}
+    quantity: ${OUTPUT_TERMINUS_LIMITER_QUANTITY:10240}
+    timeout: ${OUTPUT_TERMINUS_TIMEOUT:50ms}
