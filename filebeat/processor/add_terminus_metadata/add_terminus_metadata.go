@@ -49,7 +49,7 @@ type addDockerMetadata struct {
 	outputCollectorKey string
 	defaultTags        []string
 	tagKeyRel          []string
-	labelKeyRel        []string
+	labelKeyRel        []string // TODO remove?
 }
 
 func New(cfg *common.Config) (processors.Processor, error) {

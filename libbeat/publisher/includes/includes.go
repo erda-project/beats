@@ -33,5 +33,6 @@ import (
 
 	// extend
 	_ "github.com/elastic/beats/v7/libbeat/outputs/collector"
+	_ "github.com/elastic/beats/v7/libbeat/outputs/collectorv2"
 	_ "github.com/elastic/beats/v7/libbeat/outputs/export"
 )

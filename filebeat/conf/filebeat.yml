@@ -14,23 +14,23 @@ filebeat.inputs:
     stream: all
     encoding: utf-8
     ignore_older: 24h
-    max_bytes: 51200
+    max_bytes: ${INPUT_MAX_BYTES:51200}
     # 只要包含时间文本和日志等级文本，则认为是日志行
     multiline.patterns:
       - '(.*?)(\d{4}-\d{2}-\d{2}(\s|T)\d{2}:\d{2}:\d{2})(.*?)([Aa]lert|ALERT|[Tt]race|TRACE|[Dd]ebug|DEBUG|DEBU|[Nn]otice|NOTICE|[Ii]nfo|INFO|[Ww]arn(?:ing)?|WARN(?:ING)?|[Ee]rr(?:or)?|ERR(?:OR)?|[Cc]rit(?:ical)?|CRIT(?:ICAL)?|[Ff]atal|FATAL|[Ss]evere|SEVERE|[Ee]merg(?:ency)?|EMERG(?:ENCY){1})(.*?)'
       - '(.*?)([Aa]lert|ALERT|[Tt]race|TRACE|[Dd]ebug|DEBUG|DEBU|[Nn]otice|NOTICE|[Ii]nfo|INFO|[Ww]arn(?:ing)?|WARN(?:ING)?|[Ee]rr(?:or)?|ERR(?:OR)?|[Cc]rit(?:ical)?|CRIT(?:ICAL)?|[Ff]atal|FATAL|[Ss]evere|SEVERE|[Ee]merg(?:ency)?|EMERG(?:ENCY){1})(.*?)(\d{4}-\d{2}-\d{2}(\s|T)\d{2}:\d{2}:\d{2})(.*?)'
     multiline.negate: false
     multiline.match: after
-    multiline.max_lines: 500
+    multiline.max_lines: ${INPUT_MULTILINE_MAX_LINES:500}
     multiline.timeout: 1s
-    close_inactive: 10m
-    close_removed: true
-    close_timeout: 30m
-    clean_removed: true
+    close_inactive: ${INPUT_CLOSE_INACTIVE:5m}
+    # default false, avoid log-lose when filebeat consume can't catch up log produce
+    close_removed: ${INPUT_CLOSE_REMOVED:false}
+    close_timeout: ${INPUT_CLOSE_TIMEOUT:30m}
 queue:
   mem:
     events: ${QUEUE_MEM_EVENTS:1024}
-    flush.min_events: ${QUEUE_MEM_FLUSH_MIN_EVENTS:512}
+    flush.min_events: ${QUEUE_MEM_FLUSH_MIN_EVENTS:50}
     flush.timeout: ${QUEUE_MEM_FLUSH_TIMEOUT:1s}
 processors:
   - add_terminus_metadata:
@@ -70,14 +70,11 @@ output.collector:
     keep_alive: "30s"
     timeout: "60s"
     compress_level: 9
-  bulk_max_size: 1024
+  bulk_max_size: ${OUTPUT_BULK_MAX_SIZE:50}
   max_retries: -1
   backoff:
     init: "1s"
     max: "60s"
   load_balance: true
   compress_level: 9
-  limiter:
-    threshold: ${OUTPUT_TERMINUS_LIMITER_THRESHOLD:1048576}
-    quantity: ${OUTPUT_TERMINUS_LIMITER_QUANTITY:10240}
-    timeout: ${OUTPUT_TERMINUS_TIMEOUT:50ms}
+

@@ -206,6 +206,7 @@ func (p *DockerJSONReader) Next() (reader.Message, error) {
 		}
 
 		// Handle multiline messages, join partial lines
+		count := 0
 		for p.partial && logLine.Partial {
 			next, err := p.reader.Next()
 
@@ -221,7 +222,11 @@ func (p *DockerJSONReader) Next() (reader.Message, error) {
 				p.logger.Errorf("Parse line error: %v", err)
 				return message, reader.ErrLineUnparsable
 			}
+			count++
 			message.Content = append(message.Content, next.Content...)
+		}
+		if count > 1 {
+			p.logger.Errorf("count: %d; message.Fields: %+v; message.Bytes: %d; message length: %d", count, message.Fields, message.Bytes, len(message.Content))
 		}
 
 		if p.stream != "all" && p.stream != logLine.Stream {
