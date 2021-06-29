@@ -25,7 +25,7 @@ type config struct {
 	Limiter       limiterConfig     `config:"limiter"`
 	Output        outputConfig      `config:"output"`
 
-	Encoder encoderConfig `config:"encoder"`
+	Encoder string `config:"encoder"`
 }
 
 type backoff struct {
@@ -73,7 +73,7 @@ var defaultConfig = config{
 		Timeout:       60 * time.Second,
 		CompressLevel: 9,
 	},
-	Encoder: encoderConfig{Name: encoderJson},
+	Encoder: string(encoderJson),
 }
 
 func (c *config) Validate() error {

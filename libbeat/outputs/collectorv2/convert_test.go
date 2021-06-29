@@ -43,10 +43,8 @@ func mockClient(enc encoderName) *client {
 		Output: outputConfig{
 			CompressLevel: 9,
 		},
-		Encoder: encoderConfig{
-			Name: enc,
-		},
-	}, nil)
+		Encoder: string(enc)},
+		nil)
 	if err != nil {
 		log.Fatal(err)
 	}

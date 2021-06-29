@@ -1,6 +1,6 @@
 # 日志
 logging:
-  level: ${LOG_LEVEL:error}
+  level: ${LOG_LEVEL:info}
   to_stderr: true
 filebeat.registry:
   path: ${REGISTRY_FILE_PATH:/data/spot/filebeat/data/registry}
@@ -51,7 +51,7 @@ processors:
       file_name: ${PARSE_KUBE_APISERVER_AUDIT_FILE_NAME:"kube-audit.log"}
       cluster_key: ${PARSE_KUBE_APISERVER_AUDIT_CLUSTER_KEY:"DICE_CLUSTER_NAME"}
 
-output.collector:
+output.collectorV2:
   hosts: ${OUTPUT_TERMINUS_HOSTS:http://collector.default.svc.cluster.local:7076}
   worker: 1
   job_path: ${OUTPUT_TERMINUS_JOB_PATH:/collect/logs/job}
@@ -77,4 +77,6 @@ output.collector:
     max: "60s"
   load_balance: true
   compress_level: 9
+  encoderConfig:
+    name: protobuf
 

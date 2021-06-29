@@ -43,7 +43,7 @@ type outputLogAnalysis struct {
 }
 
 func newClient(host string, cfg config, observer outputs.Observer) (*client, error) {
-	enc := createEncoder(cfg.Encoder)
+	enc := createEncoder(encoderName(cfg.Encoder))
 
 	jobReq, err := newRequest(host, cfg.JobPath, cfg.Method, cfg.Params, cfg.Headers)
 	if err != nil {
@@ -218,7 +218,7 @@ func (c *client) publishEvents(events []publisher.Event) ([]publisher.Event, err
 func (c *client) sendEvents(events []publisher.Event, isJob bool) ([]publisher.Event, error) {
 	send := convertEvents(events)
 	if len(send.Logs) == 0 {
-		return events, errors.New("no data to send")
+		return events, nil
 	}
 
 	body, err := c.enc.Encode(send)

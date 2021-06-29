@@ -23,11 +23,11 @@ const (
 )
 
 type encoderConfig struct {
-	Name encoderName `config:"name"`
+	Name string `config:"name"`
 }
 
-func createEncoder(cfg encoderConfig) Encoder {
-	switch cfg.Name {
+func createEncoder(name encoderName) Encoder {
+	switch name {
 	case encoderProtobuf:
 		return protobuf.NewEncoder()
 	default:
