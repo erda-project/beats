@@ -11,8 +11,6 @@ type config struct {
 	ContainerPath string            `config:"container_path"`
 	Params        map[string]string `config:"params"`
 	Headers       map[string]string `config:"headers"`
-	AuthUsername  string            `config:"auth_username"`
-	AuthPassword  string            `config:"auth_password"`
 	Method        string            `config:"method"`
 	TLS           *tlscommon.Config `config:"ssl"`
 	KeepAlive     time.Duration     `config:"keep_alive"`
@@ -25,7 +23,13 @@ type config struct {
 	Limiter       limiterConfig     `config:"limiter"`
 	Output        outputConfig      `config:"output"`
 
-	Encoder string `config:"encoder"`
+	Encoder      string     `config:"encoder"`
+	Auth         authConfig `config:"auth"`
+}
+
+type authConfig struct {
+	Type     string            `config:"type"`
+	Property map[string]string `config:"property"`
 }
 
 type backoff struct {

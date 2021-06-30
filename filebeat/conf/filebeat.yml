@@ -30,7 +30,7 @@ filebeat.inputs:
 queue:
   mem:
     events: ${QUEUE_MEM_EVENTS:1024}
-    flush.min_events: ${QUEUE_MEM_FLUSH_MIN_EVENTS:50}
+    flush.min_events: ${QUEUE_MEM_FLUSH_MIN_EVENTS:256}
     flush.timeout: ${QUEUE_MEM_FLUSH_TIMEOUT:1s}
 processors:
   - add_terminus_metadata:
@@ -56,8 +56,11 @@ output.collectorV2:
   worker: 1
   job_path: ${OUTPUT_TERMINUS_JOB_PATH:/collect/logs/job}
   container_path: ${OUTPUT_TERMINUS_CONTAINER_PATH:/collect/logs/container}
-  auth_username: ${COLLECTOR_AUTH_USERNAME:}
-  auth_password: ${COLLECTOR_AUTH_PASSWORD:}
+  auth:
+    type: hmac
+    property:
+      access_key_id: %{FILEBEAT_ACCESS_KEY_ID:}
+      secret_key: ${FILEBEAT_SECRET_KEY:}
   params:
   headers:
   method: ${OUTPUT_TERMINUS_METHOD:POST}
@@ -70,7 +73,7 @@ output.collectorV2:
     keep_alive: "30s"
     timeout: "60s"
     compress_level: 9
-  bulk_max_size: ${OUTPUT_BULK_MAX_SIZE:50}
+  bulk_max_size: ${OUTPUT_BULK_MAX_SIZE:256}
   max_retries: -1
   backoff:
     init: "1s"
@@ -79,4 +82,5 @@ output.collectorV2:
   compress_level: 9
   encoderConfig:
     name: protobuf
+
 

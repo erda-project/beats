@@ -1,7 +1,6 @@
 package collectorv2
 
 import (
-	"bytes"
 	"context"
 	"io"
 	"io/ioutil"
@@ -16,6 +15,8 @@ import (
 	"github.com/elastic/beats/v7/libbeat/outputs"
 	"github.com/elastic/beats/v7/libbeat/outputs/collectorv2/encoder"
 	"github.com/elastic/beats/v7/libbeat/outputs/collectorv2/encoder/protobuf"
+	"github.com/elastic/beats/v7/libbeat/outputs/collectorv2/secret"
+	"github.com/elastic/beats/v7/libbeat/outputs/collectorv2/secret/hmac"
 	"github.com/elastic/beats/v7/libbeat/publisher"
 	"github.com/gofrs/uuid"
 	"github.com/pkg/errors"
@@ -24,6 +25,7 @@ import (
 type client struct {
 	enc        Encoder
 	compressor *gziper
+	authCfg    authConfig
 
 	client       *http.Client
 	jobReq       *http.Request
@@ -55,11 +57,11 @@ func newClient(host string, cfg config, observer outputs.Observer) (*client, err
 		return nil, errors.Wrap(err, "fail to create container request")
 	}
 
-	// todo author
-	if cfg.AuthUsername != "" || cfg.AuthPassword != "" {
-		jobReq.SetBasicAuth(cfg.AuthUsername, cfg.AuthPassword)
-		containerReq.SetBasicAuth(cfg.AuthUsername, cfg.AuthPassword)
-	}
+	// // todo author
+	// if cfg.AuthUsername != "" || cfg.AuthPassword != "" {
+	// 	jobReq.SetBasicAuth(cfg.AuthUsername, cfg.AuthPassword)
+	// 	containerReq.SetBasicAuth(cfg.AuthUsername, cfg.AuthPassword)
+	// }
 
 	var compressor *gziper
 	if cfg.CompressLevel > 0 && cfg.CompressLevel <= 9 {
@@ -101,6 +103,7 @@ func newClient(host string, cfg config, observer outputs.Observer) (*client, err
 		containerReq: containerReq,
 		observer:     observer,
 		compressor:   compressor,
+		authCfg:      cfg.Auth,
 
 		output: &outputLogAnalysis{
 			Client:     outputClient,
@@ -221,11 +224,6 @@ func (c *client) sendEvents(events []publisher.Event, isJob bool) ([]publisher.E
 		return events, nil
 	}
 
-	body, err := c.enc.Encode(send)
-	if err != nil {
-		return events, errors.Wrap(err, "fail to encode send events")
-	}
-
 	var req *http.Request
 	if isJob {
 		req = c.jobReq
@@ -234,19 +232,19 @@ func (c *client) sendEvents(events []publisher.Event, isJob bool) ([]publisher.E
 	}
 	c.populateRequest(req)
 
-	var reader *bytes.Buffer
+	reader, err := c.serialize(events)
+	if err != nil {
+		return events, err
+	}
+	req.Body = ioutil.NopCloser(reader)
+
 	if c.compressor != nil {
-		cbody, err := c.compressor.Compress(body)
-		if err != nil {
-			return events, err
-		}
-		reader = bytes.NewBuffer(cbody)
 		req.Header.Add("Content-Encoding", "gzip")
-	} else {
-		reader = bytes.NewBuffer(body)
 	}
 
-	req.Body = ioutil.NopCloser(reader)
+	// todo auth
+	c.authRequest(req)
+
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return events, errors.Errorf("fail to send request, err: %s", err)
@@ -258,6 +256,20 @@ func (c *client) sendEvents(events []publisher.Event, isJob bool) ([]publisher.E
 	}
 
 	return nil, nil
+}
+
+func (c *client) authRequest(req *http.Request) {
+	switch c.authCfg.Type {
+	case "basic":
+		req.SetBasicAuth(c.authCfg.Property["auth_username"], c.authCfg.Property["auth_password"])
+	case "hmac":
+		pair := secret.AkSkPair{
+			AccessKeyID: c.authCfg.Property["access_key_id"],
+			SecretKey:   c.authCfg.Property["secret_key"],
+		}
+		signer := hmac.New(pair, hmac.WithTimestamp(time.Now()))
+		signer.SignCanonicalRequest(req)
+	}
 }
 
 func (c *client) populateRequest(req *http.Request) {
@@ -329,11 +341,6 @@ func (c *client) sendOutputAddrEvents(addr string, events []publisher.Event) {
 		}
 		batch.Logs = append(batch.Logs, line)
 	}
-	body, err := c.enc.Encode(batch)
-	if err != nil {
-		logp.Err("fail to encode output %s events: %s", addr, err)
-		return
-	}
 
 	req, err := newRequest(addr, "", c.output.Method, c.output.Params, c.output.Headers)
 	if err != nil {
@@ -342,20 +349,17 @@ func (c *client) sendOutputAddrEvents(addr string, events []publisher.Event) {
 	}
 	c.populateRequest(req)
 
-	var buffer *bytes.Buffer
-	if c.compressor != nil {
-		cbody, err := c.compressor.Compress(body)
-		if err != nil {
-			logp.Err("compress error: %s", err)
-			return
-		}
-		buffer = bytes.NewBuffer(cbody)
+	reader, err := c.serialize(events)
+	if err != nil {
+		logp.Err("fail to encode output %s events: %s", addr, err)
+		return
+	}
+	req.Body = ioutil.NopCloser(reader)
+
+	if c.output.Compressor != nil {
 		req.Header.Add("Content-Encoding", "gzip")
-	} else {
-		buffer = bytes.NewBuffer(body)
 	}
 
-	req.Body = ioutil.NopCloser(buffer)
 	resp, err := c.output.Client.Do(req)
 
 	if err != nil {
