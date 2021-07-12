@@ -13,14 +13,17 @@ import (
 	"github.com/elastic/beats/v7/libbeat/common/transport/tlscommon"
 	"github.com/elastic/beats/v7/libbeat/logp"
 	"github.com/elastic/beats/v7/libbeat/outputs"
+	"github.com/elastic/beats/v7/libbeat/outputs/collectorv2/secret"
+	"github.com/elastic/beats/v7/libbeat/outputs/collectorv2/secret/hmac"
 	"github.com/elastic/beats/v7/libbeat/publisher"
 	"github.com/gofrs/uuid"
 	"github.com/pkg/errors"
 )
 
 type client struct {
-	enc encoder
-	lmtr *limiter
+	enc     encoder
+	lmtr    *limiter
+	authCfg authConfig
 
 	client       *http.Client
 	jobReq       *http.Request
@@ -61,10 +64,10 @@ func newClient(host string, cfg config, observer outputs.Observer) (*client, err
 	}
 	enc.addHeader(&containerReq.Header)
 
-	if cfg.AuthUsername != "" || cfg.AuthPassword != "" {
-		jobReq.SetBasicAuth(cfg.AuthUsername, cfg.AuthPassword)
-		containerReq.SetBasicAuth(cfg.AuthUsername, cfg.AuthPassword)
-	}
+	// if cfg.AuthUsername != "" || cfg.AuthPassword != "" {
+	// 	jobReq.SetBasicAuth(cfg.AuthUsername, cfg.AuthPassword)
+	// 	containerReq.SetBasicAuth(cfg.AuthUsername, cfg.AuthPassword)
+	// }
 
 	tls, err := tlscommon.LoadTLSConfig(cfg.TLS)
 	if err != nil {
@@ -98,6 +101,7 @@ func newClient(host string, cfg config, observer outputs.Observer) (*client, err
 		outputParams:        cfg.Output.Params,
 		outputHeaders:       cfg.Output.Headers,
 		observer:            observer,
+		authCfg:             cfg.Auth,
 	}, nil
 }
 
@@ -229,6 +233,8 @@ func (c *client) sendEvents(events []publisher.Event, isJob bool) ([]publisher.E
 	req.Header.Set("terminus-request-id", requestID)
 	req.Body = ioutil.NopCloser(body)
 
+	c.authRequest(req)
+
 	resp, err := c.client.Do(req)
 	if err != nil {
 		return events, errors.Errorf("fail to send request %s: %s", requestID, err)
@@ -243,6 +249,20 @@ func (c *client) sendEvents(events []publisher.Event, isJob bool) ([]publisher.E
 		c.sendOutputEvents(send)
 	}()
 	return rest, nil
+}
+
+func (c *client) authRequest(req *http.Request) {
+	switch c.authCfg.Type {
+	case "basic":
+		req.SetBasicAuth(c.authCfg.Property["auth_username"], c.authCfg.Property["auth_password"])
+	case "hmac":
+		pair := secret.AkSkPair{
+			AccessKeyID: c.authCfg.Property["access_key_id"],
+			SecretKey:   c.authCfg.Property["secret_key"],
+		}
+		signer := hmac.New(pair, hmac.WithTimestamp(time.Now()))
+		signer.SignCanonicalRequest(req)
+	}
 }
 
 func (c *client) sendOutputEvents(events []publisher.Event) {

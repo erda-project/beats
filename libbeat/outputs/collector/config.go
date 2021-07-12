@@ -24,6 +24,12 @@ type config struct {
 	CompressLevel int               `config:"compress_level" validate:"min=0, max=9"`
 	Limiter       limiterConfig     `config:"limiter"`
 	Output        outputConfig      `config:"output"`
+	Auth          authConfig        `config:"auth"`
+}
+
+type authConfig struct {
+	Type     string            `config:"type"`
+	Property map[string]string `config:"property"`
 }
 
 type backoff struct {
