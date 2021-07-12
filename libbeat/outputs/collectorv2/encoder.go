@@ -4,15 +4,15 @@ import (
 	"bytes"
 	"io"
 
-	"github.com/elastic/beats/v7/libbeat/outputs/collectorv2/encoder"
 	"github.com/elastic/beats/v7/libbeat/outputs/collectorv2/encoder/json"
 	"github.com/elastic/beats/v7/libbeat/outputs/collectorv2/encoder/protobuf"
+	"github.com/elastic/beats/v7/libbeat/outputs/collectorv2/pb"
 	"github.com/elastic/beats/v7/libbeat/publisher"
 	"github.com/pkg/errors"
 )
 
 type Encoder interface {
-	Encode(batch *encoder.LogBatch) ([]byte, error)
+	Encode(batch *pb.LogBatch) ([]byte, error)
 }
 
 type encoderName string

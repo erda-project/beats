@@ -77,7 +77,7 @@ var defaultConfig = config{
 		Timeout:       60 * time.Second,
 		CompressLevel: 9,
 	},
-	Encoder: string(encoderJson),
+	Encoder: string(encoderProtobuf),
 }
 
 func (c *config) Validate() error {

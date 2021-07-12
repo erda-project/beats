@@ -13,8 +13,8 @@ import (
 	"github.com/elastic/beats/v7/libbeat/common/transport/tlscommon"
 	"github.com/elastic/beats/v7/libbeat/logp"
 	"github.com/elastic/beats/v7/libbeat/outputs"
-	"github.com/elastic/beats/v7/libbeat/outputs/collectorv2/encoder"
 	"github.com/elastic/beats/v7/libbeat/outputs/collectorv2/encoder/protobuf"
+	"github.com/elastic/beats/v7/libbeat/outputs/collectorv2/pb"
 	"github.com/elastic/beats/v7/libbeat/outputs/collectorv2/secret"
 	"github.com/elastic/beats/v7/libbeat/outputs/collectorv2/secret/hmac"
 	"github.com/elastic/beats/v7/libbeat/publisher"
@@ -56,12 +56,6 @@ func newClient(host string, cfg config, observer outputs.Observer) (*client, err
 	if err != nil {
 		return nil, errors.Wrap(err, "fail to create container request")
 	}
-
-	// // todo author
-	// if cfg.AuthUsername != "" || cfg.AuthPassword != "" {
-	// 	jobReq.SetBasicAuth(cfg.AuthUsername, cfg.AuthPassword)
-	// 	containerReq.SetBasicAuth(cfg.AuthUsername, cfg.AuthPassword)
-	// }
 
 	var compressor *gziper
 	if cfg.CompressLevel > 0 && cfg.CompressLevel <= 9 {
@@ -213,7 +207,7 @@ func (c *client) publishEvents(events []publisher.Event) ([]publisher.Event, err
 	if err != nil {
 		return events, errors.Wrap(err, "fail to send container events")
 	}
-	// todo to log analysis
+	// todo to log analysis 要兼容
 	go c.sendOutputEvents(containers)
 	return containerRest, nil
 }
@@ -333,7 +327,7 @@ func (c *client) sendOutputEvents(events []publisher.Event) {
 }
 
 func (c *client) sendOutputAddrEvents(addr string, events []publisher.Event) {
-	batch := &encoder.LogBatch{Logs: make([]*encoder.Log, 0, len(events))}
+	batch := &pb.LogBatch{Logs: make([]*pb.Log, 0, len(events))}
 	for _, event := range events {
 		line, err := convertEvent(event)
 		if err != nil {

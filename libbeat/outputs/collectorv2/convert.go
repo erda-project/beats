@@ -8,16 +8,16 @@ import (
 
 	"github.com/elastic/beats/v7/libbeat/common"
 	"github.com/elastic/beats/v7/libbeat/logp"
-	"github.com/elastic/beats/v7/libbeat/outputs/collectorv2/encoder"
+	"github.com/elastic/beats/v7/libbeat/outputs/collectorv2/pb"
 	"github.com/elastic/beats/v7/libbeat/publisher"
 	"github.com/pkg/errors"
 )
 
 var typeConvertErr = errors.New("type convert failed")
 
-func convertEvents(events []publisher.Event) *encoder.LogBatch {
-	res := &encoder.LogBatch{
-		Logs: make([]*encoder.Log, 0, len(events)),
+func convertEvents(events []publisher.Event) *pb.LogBatch {
+	res := &pb.LogBatch{
+		Logs: make([]*pb.Log, 0, len(events)),
 	}
 	for i := range events {
 		log, err := convertEvent(events[i])
@@ -30,8 +30,8 @@ func convertEvents(events []publisher.Event) *encoder.LogBatch {
 	return res
 }
 
-func convertEvent(event publisher.Event) (*encoder.Log, error) {
-	log := &encoder.Log{
+func convertEvent(event publisher.Event) (*pb.Log, error) {
+	log := &pb.Log{
 		Source: "container",
 		Stream: "stdout",
 	}

@@ -23,7 +23,7 @@ import (
 
 	"github.com/elastic/beats/v7/libbeat/beat"
 	"github.com/elastic/beats/v7/libbeat/common"
-	"github.com/elastic/beats/v7/libbeat/outputs/collectorv2/encoder"
+	"github.com/elastic/beats/v7/libbeat/outputs/collectorv2/pb"
 	"github.com/elastic/beats/v7/libbeat/publisher"
 	"github.com/stretchr/testify/assert"
 )
@@ -32,8 +32,13 @@ func mockClient(enc encoderName) *client {
 	cli, err := newClient("localhost", config{
 		JobPath:       "/jobs",
 		ContainerPath: "/containers",
-		AuthUsername:  "name",
-		AuthPassword:  "123",
+		Auth: authConfig{
+			Type: "basic",
+			Property: map[string]string{
+				"auth_username": "xxx",
+				"auth_password": "yyy",
+			},
+		},
 		Method:        "POST",
 		Timeout:       10,
 		MaxRetries:    1,
@@ -70,11 +75,11 @@ func TestSerializeProtobuf(t *testing.T) {
 	assert.Nil(t, err)
 	o, err := ioutil.ReadAll(gr)
 	assert.Nil(t, err)
-	batch := &encoder.LogBatch{}
+	batch := &pb.LogBatch{}
 	err = batch.Unmarshal(o)
 	assert.Nil(t, err)
-	assert.Equal(t, &encoder.LogBatch{
-		Logs: []*encoder.Log{
+	assert.Equal(t, &pb.LogBatch{
+		Logs: []*pb.Log{
 			{
 				Id:      "77e90e85233cb3ec1bfd7655633248056a3fc03e092596c405a5b158cc8885b2",
 				Source:  "container",
@@ -158,13 +163,13 @@ func Test_convertEvent(t *testing.T) {
 	tests := []struct {
 		name    string
 		args    args
-		want    *encoder.Log
+		want    *pb.Log
 		wantErr bool
 	}{
 		{
 			"test convert event",
 			args{event: mockEvent(1)[0]},
-			&encoder.Log{
+			&pb.Log{
 				Id:      "77e90e85233cb3ec1bfd7655633248056a3fc03e092596c405a5b158cc8885b2",
 				Source:  "container",
 				Stream:  "stdout",
