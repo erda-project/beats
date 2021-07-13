@@ -13,8 +13,8 @@ services:
   filebeat:
     image: filebeat
     envs:
-      COLLECTOR_AUTH_PASSWORD: yyy
-      COLLECTOR_AUTH_USERNAME: xxx
+      COLLECTOR_AUTH_PASSWORD: G$9767bP32drYFPWrK4XMLRMTatiM6cU
+      COLLECTOR_AUTH_USERNAME: collector
       DOCKER_SOCK_PATH: unix:///rootfs/var/run/docker.sock
     resources:
       cpu: ${request_cpu:0.2}
