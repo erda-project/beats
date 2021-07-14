@@ -25,7 +25,7 @@ import (
 type client struct {
 	enc        Encoder
 	compressor *gziper
-	authCfg    authConfig
+	security   Secret
 
 	client       *http.Client
 	jobReq       *http.Request
@@ -97,7 +97,7 @@ func newClient(host string, cfg config, observer outputs.Observer) (*client, err
 		containerReq: containerReq,
 		observer:     observer,
 		compressor:   compressor,
-		authCfg:      cfg.Auth,
+		security:     createSecret(cfg.Auth),
 
 		output: &outputLogAnalysis{
 			Client:     outputClient,
@@ -261,7 +261,7 @@ func (c *client) authRequest(req *http.Request) {
 			AccessKeyID: c.authCfg.Property["access_key_id"],
 			SecretKey:   c.authCfg.Property["secret_key"],
 		}
-		signer := hmac.New(pair, hmac.WithTimestamp(time.Now()))
+		signer := hmac.New(pair)
 		signer.SignCanonicalRequest(req)
 	}
 }

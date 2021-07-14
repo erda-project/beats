@@ -57,10 +57,10 @@ output.collector:
   job_path: ${OUTPUT_TERMINUS_JOB_PATH:/api/v1/collect/logs/job}
   container_path: ${OUTPUT_TERMINUS_CONTAINER_PATH:/api/v1/collect/logs/container}
   auth:
-    type: basic
+    type: hmac
     property:
-      auth_username: ${COLLECTOR_AUTH_USERNAME:}
-      auth_password: ${COLLECTOR_AUTH_PASSWORD:}
+      access_key_id: ${FILEBEAT_ACCESS_KEY_ID:}
+      secret_key: ${FILEBEAT_SECRET_KEY:}
   params:
   headers:
   method: ${OUTPUT_TERMINUS_METHOD:POST}
@@ -73,7 +73,6 @@ output.collector:
     keep_alive: "30s"
     timeout: "60s"
     compress_level: 9
-  // TODO 触发日志消息体大小则发送
   bulk_max_size: ${OUTPUT_BULK_MAX_SIZE:256}
   max_retries: -1
   backoff:
