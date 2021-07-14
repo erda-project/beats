@@ -210,6 +210,7 @@ func (p *DockerJSONReader) Next() (reader.Message, error) {
 		contentBytes += len(logLine.Log)
 
 		// Handle multiline messages, join partial lines
+		count := 0
 		for p.partial && logLine.Partial {
 			next, err := p.reader.Next()
 
@@ -225,12 +226,12 @@ func (p *DockerJSONReader) Next() (reader.Message, error) {
 				p.logger.Errorf("Parse line error: %v", err)
 				return message, reader.ErrLineUnparsable
 			}
-
+      
 			contentBytes += len(next.Content)
 			if contentBytes - len(next.Content) > p.maxBytes {
 				continue
 			}
-
+      
 			message.Content = append(message.Content, next.Content...)
 		}
 

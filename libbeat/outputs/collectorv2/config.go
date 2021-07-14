@@ -1,4 +1,4 @@
-package collector
+package collectorv2
 
 import (
 	"time"
@@ -11,8 +11,6 @@ type config struct {
 	ContainerPath string            `config:"container_path"`
 	Params        map[string]string `config:"params"`
 	Headers       map[string]string `config:"headers"`
-	AuthUsername  string            `config:"auth_username"`
-	AuthPassword  string            `config:"auth_password"`
 	Method        string            `config:"method"`
 	TLS           *tlscommon.Config `config:"ssl"`
 	KeepAlive     time.Duration     `config:"keep_alive"`
@@ -24,7 +22,9 @@ type config struct {
 	CompressLevel int               `config:"compress_level" validate:"min=0, max=9"`
 	Limiter       limiterConfig     `config:"limiter"`
 	Output        outputConfig      `config:"output"`
-	Auth          authConfig        `config:"auth"`
+
+	Encoder      string     `config:"encoder"`
+	Auth         authConfig `config:"auth"`
 }
 
 type authConfig struct {
@@ -77,6 +77,7 @@ var defaultConfig = config{
 		Timeout:       60 * time.Second,
 		CompressLevel: 9,
 	},
+	Encoder: string(encoderProtobuf),
 }
 
 func (c *config) Validate() error {

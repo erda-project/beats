@@ -51,11 +51,11 @@ processors:
       file_name: ${PARSE_KUBE_APISERVER_AUDIT_FILE_NAME:"kube-audit.log"}
       cluster_key: ${PARSE_KUBE_APISERVER_AUDIT_CLUSTER_KEY:"DICE_CLUSTER_NAME"}
 
-output.collector:
+output.collectorV2:
   hosts: ${OUTPUT_TERMINUS_HOSTS:http://collector.default.svc.cluster.local:7076}
   worker: 1
-  job_path: ${OUTPUT_TERMINUS_JOB_PATH:/api/v1/collect/logs/job}
-  container_path: ${OUTPUT_TERMINUS_CONTAINER_PATH:/api/v1/collect/logs/container}
+  job_path: ${OUTPUT_TERMINUS_JOB_PATH:/api/v2/collect/logs/job}
+  container_path: ${OUTPUT_TERMINUS_CONTAINER_PATH:/api/v2/collect/logs/container}
   auth:
     type: hmac
     property:
@@ -80,4 +80,5 @@ output.collector:
     max: "60s"
   load_balance: true
   compress_level: 9
+  encoder: "protobuf"
 

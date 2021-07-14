@@ -20,4 +20,4 @@ COPY --from=build /root/build/entrypoint.sh /app/
 COPY --from=build /root/build/filebeat/filebeat /app/
 COPY --from=build /root/build/filebeat/conf/* /app/conf/
 
-CMD "./entrypoint.sh"
+CMD ["./entrypoint.sh"]

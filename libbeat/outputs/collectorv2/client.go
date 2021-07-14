@@ -1,4 +1,4 @@
-package collector
+package collectorv2
 
 import (
 	"context"
@@ -13,54 +13,57 @@ import (
 	"github.com/elastic/beats/v7/libbeat/common/transport/tlscommon"
 	"github.com/elastic/beats/v7/libbeat/logp"
 	"github.com/elastic/beats/v7/libbeat/outputs"
+	"github.com/elastic/beats/v7/libbeat/outputs/collectorv2/encoder/protobuf"
+	"github.com/elastic/beats/v7/libbeat/outputs/collectorv2/pb"
+	"github.com/elastic/beats/v7/libbeat/outputs/collectorv2/secret"
+	"github.com/elastic/beats/v7/libbeat/outputs/collectorv2/secret/hmac"
 	"github.com/elastic/beats/v7/libbeat/publisher"
 	"github.com/gofrs/uuid"
 	"github.com/pkg/errors"
 )
 
 type client struct {
-	enc      encoder
-	lmtr     *limiter
-	security Secret
+	enc        Encoder
+	compressor *gziper
+	security   Secret
 
 	client       *http.Client
 	jobReq       *http.Request
 	containerReq *http.Request
 
-	outputCompressLevel int
-	outputClient        *http.Client
-	outputParams        map[string]string
-	outputHeaders       map[string]string
-	outputMethod        string
-
 	observer outputs.Observer
+
+	output *outputLogAnalysis // todo remove
+}
+
+type outputLogAnalysis struct {
+	Client     *http.Client
+	Params     map[string]string
+	Headers    map[string]string
+	Method     string
+	Compressor *gziper
 }
 
 func newClient(host string, cfg config, observer outputs.Observer) (*client, error) {
-	var (
-		enc encoder
-		err error
-	)
-	if cfg.CompressLevel == 0 {
-		enc, err = newJSONEncoder()
-	} else {
-		enc, err = newGzipEncoder(cfg.CompressLevel)
-	}
-	if err != nil {
-		return nil, errors.Wrap(err, "fail to create encoder")
-	}
+	enc := createEncoder(encoderName(cfg.Encoder))
 
 	jobReq, err := newRequest(host, cfg.JobPath, cfg.Method, cfg.Params, cfg.Headers)
 	if err != nil {
 		return nil, errors.Wrap(err, "fail to create job request")
 	}
-	enc.addHeader(&jobReq.Header)
 
 	containerReq, err := newRequest(host, cfg.ContainerPath, cfg.Method, cfg.Params, cfg.Headers)
 	if err != nil {
 		return nil, errors.Wrap(err, "fail to create container request")
 	}
-	enc.addHeader(&containerReq.Header)
+
+	var compressor *gziper
+	if cfg.CompressLevel > 0 && cfg.CompressLevel <= 9 {
+		compressor, err = NewGziper(cfg.CompressLevel)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	tls, err := tlscommon.LoadTLSConfig(cfg.TLS)
 	if err != nil {
@@ -79,22 +82,30 @@ func newClient(host string, cfg config, observer outputs.Observer) (*client, err
 	if err != nil {
 		return nil, errors.Wrap(err, "fail to create output client")
 	}
-
-	lmtr := newLimiter(cfg.Limiter.Quantity, cfg.Limiter.Threshold, cfg.Limiter.Timeout)
+	var outputCompressor *gziper
+	if cfg.Output.CompressLevel > 0 && cfg.Output.CompressLevel <= 9 {
+		outputCompressor, err = NewGziper(cfg.CompressLevel)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	return &client{
-		enc:                 enc,
-		lmtr:                lmtr,
-		client:              httpClient,
-		jobReq:              jobReq,
-		containerReq:        containerReq,
-		outputCompressLevel: cfg.Output.CompressLevel,
-		outputClient:        outputClient,
-		outputMethod:        cfg.Output.Method,
-		outputParams:        cfg.Output.Params,
-		outputHeaders:       cfg.Output.Headers,
-		observer:            observer,
-		security:            createSecret(cfg.Auth),
+		enc:          enc,
+		client:       httpClient,
+		jobReq:       jobReq,
+		containerReq: containerReq,
+		observer:     observer,
+		compressor:   compressor,
+		security:     createSecret(cfg.Auth),
+
+		output: &outputLogAnalysis{
+			Client:     outputClient,
+			Params:     cfg.Output.Params,
+			Headers:    cfg.Output.Headers,
+			Method:     cfg.Output.Method,
+			Compressor: outputCompressor,
+		},
 	}, nil
 }
 
@@ -196,21 +207,15 @@ func (c *client) publishEvents(events []publisher.Event) ([]publisher.Event, err
 	if err != nil {
 		return events, errors.Wrap(err, "fail to send container events")
 	}
+	// todo to log analysis 要兼容
+	go c.sendOutputEvents(containers)
 	return containerRest, nil
 }
 
 func (c *client) sendEvents(events []publisher.Event, isJob bool) ([]publisher.Event, error) {
-	send, rest, err := c.pickSendEvents(events)
-	if err != nil {
-		return events, errors.Wrap(err, "fail to pick send events")
-	}
-	if len(send) == 0 {
+	send := convertEvents(events)
+	if len(send.Logs) == 0 {
 		return events, nil
-	}
-
-	body, err := c.enc.encode(send)
-	if err != nil {
-		return events, errors.Wrap(err, "fail to encode send events")
 	}
 
 	var req *http.Request
@@ -219,31 +224,88 @@ func (c *client) sendEvents(events []publisher.Event, isJob bool) ([]publisher.E
 	} else {
 		req = c.containerReq
 	}
+	c.populateRequest(req)
+
+	reader, err := c.serialize(events)
+	if err != nil {
+		return events, err
+	}
+	req.Body = ioutil.NopCloser(reader)
+
+	if c.compressor != nil {
+		req.Header.Add("Content-Encoding", "gzip")
+	}
+
+	// todo auth
+	c.authRequest(req)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return events, errors.Errorf("fail to send request, err: %s", err)
+	}
+	defer closeResponseBody(resp.Body)
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return events, errors.Errorf("response status code %v is not success", resp.StatusCode)
+	}
+
+	return nil, nil
+}
+
+func (c *client) authRequest(req *http.Request) {
+	switch c.authCfg.Type {
+	case "basic":
+		req.SetBasicAuth(c.authCfg.Property["auth_username"], c.authCfg.Property["auth_password"])
+	case "hmac":
+		pair := secret.AkSkPair{
+			AccessKeyID: c.authCfg.Property["access_key_id"],
+			SecretKey:   c.authCfg.Property["secret_key"],
+		}
+		signer := hmac.New(pair)
+		signer.SignCanonicalRequest(req)
+	}
+}
+
+func (c *client) populateRequest(req *http.Request) {
+	switch c.enc.(type) {
+	case *protobuf.Encoder:
+		req.Header.Add("Content-Type", "application/x-protobuf")
+	default:
+		req.Header.Add("Content-Type", "application/json")
+	}
+
 	var requestID string
 	if key, err := uuid.NewV4(); err == nil {
 		requestID = key.String()
 	}
 	req.Header.Set("terminus-request-id", requestID)
-	req.Body = ioutil.NopCloser(body)
 
-	c.security.Secure(req)
-
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return events, errors.Errorf("fail to send request %s: %s", requestID, err)
-	}
-	defer closeResponseBody(resp.Body)
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return events, errors.Errorf("request %s response status code %v is not success", requestID, resp.StatusCode)
-	}
-	// TODO need refactor
-	go func() {
-		c.sendOutputEvents(send)
-	}()
-	return rest, nil
 }
 
+func (c *client) splitEvents(events []publisher.Event) (jobs, containers []publisher.Event, err error) {
+	for _, e := range events {
+		source, err := e.Content.GetValue("terminus.source")
+		if err != nil || source == "container" {
+			containers = append(containers, e)
+		} else {
+			jobs = append(jobs, e)
+		}
+	}
+	return
+}
+
+func closeResponseBody(body io.ReadCloser) {
+	if err := body.Close(); err != nil {
+		logp.Warn("fail to close response body. err: %s", err)
+	}
+}
+
+func (c *client) String() string {
+	return selector
+}
+
+// send to log analysis
+// todo remove
 func (c *client) sendOutputEvents(events []publisher.Event) {
 	sendMap := make(map[string][]publisher.Event)
 	for _, event := range events {
@@ -265,40 +327,35 @@ func (c *client) sendOutputEvents(events []publisher.Event) {
 }
 
 func (c *client) sendOutputAddrEvents(addr string, events []publisher.Event) {
-	var (
-		enc encoder
-		err error
-	)
-	if c.outputCompressLevel == 0 {
-		enc, err = newJSONEncoder()
-	} else {
-		enc, err = newGzipEncoder(c.outputCompressLevel)
-	}
-	if err != nil {
-		logp.Err("fail to create encoder: %s", err)
+	batch := &pb.LogBatch{Logs: make([]*pb.Log, 0, len(events))}
+	for _, event := range events {
+		line, err := convertEvent(event)
+		if err != nil {
+			logp.Err("convertEvent failed, error: %s", err)
+		}
+		batch.Logs = append(batch.Logs, line)
 	}
 
-	body, err := enc.encode(events)
-	if err != nil {
-		logp.Err("fail to encode output %s events: %s", addr, err)
-		return
-	}
-	now := time.Now().UnixNano()
-
-	req, err := newRequest(addr, "", c.outputMethod, c.outputParams, c.outputHeaders)
+	req, err := newRequest(addr, "", c.output.Method, c.output.Params, c.output.Headers)
 	if err != nil {
 		logp.Err("fail to create output request %s", addr)
 		return
 	}
-	enc.addHeader(&req.Header)
-	var requestID string
-	if key, err := uuid.NewV4(); err == nil {
-		requestID = key.String()
-	}
-	req.Header.Set("terminus-request-id", requestID)
+	c.populateRequest(req)
 
-	req.Body = ioutil.NopCloser(body)
-	resp, err := c.outputClient.Do(req)
+	reader, err := c.serialize(events)
+	if err != nil {
+		logp.Err("fail to encode output %s events: %s", addr, err)
+		return
+	}
+	req.Body = ioutil.NopCloser(reader)
+
+	if c.output.Compressor != nil {
+		req.Header.Add("Content-Encoding", "gzip")
+	}
+
+	resp, err := c.output.Client.Do(req)
+
 	if err != nil {
 		logp.Err("fail to send %s output: %s", addr, err)
 		return
@@ -309,82 +366,4 @@ func (c *client) sendOutputAddrEvents(addr string, events []publisher.Event) {
 		logp.Err("output %s response status is not success, code is %v", addr, resp.StatusCode)
 		return
 	}
-
-	logp.Info("send output %s request %s success, count: %v, cost: %.3fs",
-		addr, requestID, len(events), float64(time.Now().UnixNano()-now)/float64(time.Second))
-}
-
-func (c *client) pickSendEvents(events []publisher.Event) (send, rest []publisher.Event, errs error) {
-	// 先尝试发送全部events
-	body, err := c.enc.encode(events)
-	if err != nil {
-		rest, errs = events, errors.Wrap(err, "fail to encode events")
-		return
-	}
-	if c.lmtr.assign(int64(body.Len())) {
-		send = events
-		return
-	}
-
-	// 后尝试减少发送的events数
-	send, rest, err = c.balanceEvents(events, rest)
-	if err != nil {
-		errs = errors.Wrap(err, "fail to balance events")
-	}
-	return
-}
-
-func (c *client) splitEvents(events []publisher.Event) (jobs, containers []publisher.Event, err error) {
-	for _, e := range events {
-		source, err := e.Content.GetValue("terminus.source")
-		if err != nil || source == "container" {
-			containers = append(containers, e)
-		} else {
-			jobs = append(jobs, e)
-		}
-	}
-	return
-}
-
-func (c *client) balanceEvents(send, rest []publisher.Event) (newSend, newRest []publisher.Event, errs error) {
-	if len(send) <= 1 {
-		newRest = append(newRest, send...)
-		newRest = append(newRest, rest...)
-		return
-	}
-
-	half := len(send) / 2
-	for i, e := range send {
-		if i < half {
-			newSend = append(newSend, e)
-		} else {
-			newRest = append(newRest, e)
-		}
-	}
-	newRest = append(newRest, rest...)
-
-	body, err := c.enc.encode(newSend)
-	if err != nil {
-		errs = errors.Wrap(err, "fail to encode new send events")
-		return
-	}
-	if c.lmtr.assign(int64(body.Len())) {
-		return
-	}
-
-	newSend, newRest, err = c.balanceEvents(newSend, newRest)
-	if err != nil {
-		errs = errors.Wrap(err, "fail to balance events")
-	}
-	return
-}
-
-func closeResponseBody(body io.ReadCloser) {
-	if err := body.Close(); err != nil {
-		logp.Warn("fail to close response body. err: %s", err)
-	}
-}
-
-func (c *client) String() string {
-	return selector
 }
