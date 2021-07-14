@@ -15,8 +15,6 @@ import (
 	"github.com/elastic/beats/v7/libbeat/outputs"
 	"github.com/elastic/beats/v7/libbeat/outputs/collectorv2/encoder/protobuf"
 	"github.com/elastic/beats/v7/libbeat/outputs/collectorv2/pb"
-	"github.com/elastic/beats/v7/libbeat/outputs/collectorv2/secret"
-	"github.com/elastic/beats/v7/libbeat/outputs/collectorv2/secret/hmac"
 	"github.com/elastic/beats/v7/libbeat/publisher"
 	"github.com/gofrs/uuid"
 	"github.com/pkg/errors"
@@ -237,7 +235,7 @@ func (c *client) sendEvents(events []publisher.Event, isJob bool) ([]publisher.E
 	}
 
 	// todo auth
-	c.authRequest(req)
+	c.security.Secure(req)
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -250,20 +248,6 @@ func (c *client) sendEvents(events []publisher.Event, isJob bool) ([]publisher.E
 	}
 
 	return nil, nil
-}
-
-func (c *client) authRequest(req *http.Request) {
-	switch c.authCfg.Type {
-	case "basic":
-		req.SetBasicAuth(c.authCfg.Property["auth_username"], c.authCfg.Property["auth_password"])
-	case "hmac":
-		pair := secret.AkSkPair{
-			AccessKeyID: c.authCfg.Property["access_key_id"],
-			SecretKey:   c.authCfg.Property["secret_key"],
-		}
-		signer := hmac.New(pair)
-		signer.SignCanonicalRequest(req)
-	}
 }
 
 func (c *client) populateRequest(req *http.Request) {
