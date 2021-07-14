@@ -24,11 +24,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pkg/errors"
-
 	"github.com/elastic/beats/v7/libbeat/common"
 	"github.com/elastic/beats/v7/libbeat/logp"
 	"github.com/elastic/beats/v7/libbeat/reader"
+	"github.com/pkg/errors"
 )
 
 // DockerJSONReader processor renames a given field
@@ -42,6 +41,9 @@ type DockerJSONReader struct {
 
 	// parse CRI flags
 	criflags bool
+
+	// max bytes limit
+	maxBytes int
 
 	parseLine func(message *reader.Message, msg *logLine) error
 
@@ -60,16 +62,17 @@ type logLine struct {
 }
 
 // New creates a new reader renaming a field
-func New(r reader.Reader, stream string, partial bool, format string, CRIFlags bool) *DockerJSONReader {
+func New(r reader.Reader, maxBytes int, cfg *DockerJsonConfig) *DockerJSONReader {
 	reader := DockerJSONReader{
-		stream:   stream,
-		partial:  partial,
+		stream:   cfg.Stream,
+		partial:  cfg.Partial,
 		reader:   r,
-		criflags: CRIFlags,
+		criflags: cfg.CRIFlags,
+		maxBytes: maxBytes,
 		logger:   logp.NewLogger("reader_docker_json"),
 	}
 
-	switch strings.ToLower(format) {
+	switch strings.ToLower(cfg.Format) {
 	case "docker", "json-file":
 		reader.parseLine = reader.parseDockerJSONLog
 	case "cri":
@@ -186,7 +189,7 @@ func (p *DockerJSONReader) parseAuto(message *reader.Message, msg *logLine) erro
 
 // Next returns the next line.
 func (p *DockerJSONReader) Next() (reader.Message, error) {
-	var bytes int
+	var bytes, contentBytes int
 	for {
 		message, err := p.reader.Next()
 
@@ -204,6 +207,7 @@ func (p *DockerJSONReader) Next() (reader.Message, error) {
 			p.logger.Errorf("Parse line error: %v", err)
 			return message, reader.ErrLineUnparsable
 		}
+		contentBytes += len(logLine.Log)
 
 		// Handle multiline messages, join partial lines
 		count := 0
@@ -222,15 +226,22 @@ func (p *DockerJSONReader) Next() (reader.Message, error) {
 				p.logger.Errorf("Parse line error: %v", err)
 				return message, reader.ErrLineUnparsable
 			}
-			count++
+      
+			contentBytes += len(next.Content)
+			if contentBytes - len(next.Content) > p.maxBytes {
+				continue
+			}
+      
 			message.Content = append(message.Content, next.Content...)
-		}
-		if count > 1 {
-			p.logger.Errorf("count: %d; message.Fields: %+v; message.Bytes: %d; message length: %d", count, message.Fields, message.Bytes, len(message.Content))
 		}
 
 		if p.stream != "all" && p.stream != logLine.Stream {
 			continue
+		}
+
+		if contentBytes > p.maxBytes {
+			message.Content = message.Content[:p.maxBytes]
+			message.Content = append(message.Content, '\n')
 		}
 
 		return message, err

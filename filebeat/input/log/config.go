@@ -71,12 +71,7 @@ type config struct {
 	JSON           *readjson.Config        `config:"json"`
 
 	// Hidden on purpose, used by the docker input:
-	DockerJSON *struct {
-		Stream   string `config:"stream"`
-		Partial  bool   `config:"partial"`
-		Format   string `config:"format"`
-		CRIFlags bool   `config:"cri_flags"`
-	} `config:"docker-json"`
+	DockerJSON *readjson.DockerJsonConfig `config:"docker-json"`
 }
 
 type LogConfig struct {

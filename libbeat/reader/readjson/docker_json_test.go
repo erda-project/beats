@@ -18,6 +18,7 @@
 package readjson
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -35,6 +36,7 @@ func TestDockerJSON(t *testing.T) {
 		partial         bool
 		format          string
 		criflags        bool
+		maxBytes        int
 		expectedError   error
 		expectedMessage reader.Message
 	}{
@@ -329,12 +331,40 @@ func TestDockerJSON(t *testing.T) {
 				Bytes: 97,
 			},
 		},
+		{
+			name: "Docker partial log line exceed MaxBytes",
+			input: [][]byte{
+				[]byte(`{"log":"hello","stream":"stdout","attrs":{"KEY1":"value1","KEY2":"value2"},"time":"2017-11-09T13:27:36.277747246Z"}`),
+				[]byte(`{"log":"hello","stream":"stdout","attrs":{"KEY1":"value1","KEY2":"value2"},"time":"2017-11-09T13:27:36.277747246Z"}`),
+				[]byte(`{"log":"hello","stream":"stdout","attrs":{"KEY1":"value1","KEY2":"value2"},"time":"2017-11-09T13:27:36.277747246Z"}`),
+				[]byte(`{"log":"hello\n","stream":"stdout","attrs":{"KEY1":"value1","KEY2":"value2"},"time":"2017-11-09T13:27:36.277747246Z"}`),
+			},
+			stream:   "stdout",
+			partial:  true,
+			maxBytes: 12,
+			expectedMessage: reader.Message{
+				Content: []byte("hellohellohe\n"),
+				Fields:  common.MapStr{"docker": common.MapStr{"attrs": map[string]string{"KEY1": "value1", "KEY2": "value2"}}, "stream": "stdout"},
+				Ts:      time.Date(2017, 11, 9, 13, 27, 36, 277747246, time.UTC),
+				Bytes:   462,
+			},
+		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			r := &mockReader{messages: test.input}
-			json := New(r, test.stream, test.partial, test.format, test.criflags)
+			maxBytes := math.MaxInt64
+			if test.maxBytes != 0 {
+				maxBytes = test.maxBytes
+			}
+
+			json := New(r, maxBytes, &DockerJsonConfig{
+				Stream:   test.stream,
+				Partial:  test.partial,
+				Format:   test.format,
+				CRIFlags: test.criflags,
+			})
 			message, err := json.Next()
 
 			if test.expectedError != nil {

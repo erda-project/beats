@@ -1,0 +1,46 @@
+version: "2.0"
+meta:
+  ERDA_COMPONENT: ""
+values:
+  production:
+    docker_data_root: "<%$.Docker.DataRoot%>"
+    platform_data_root: "<%$.Platform.DataRoot%>"
+    replicas: 1
+    request_cpu: 0.1
+    request_mem: 128
+envs: {}
+services:
+  filebeat:
+    image: filebeat
+    envs:
+      COLLECTOR_AUTH_PASSWORD: yyy
+      COLLECTOR_AUTH_USERNAME: xxx
+      DOCKER_SOCK_PATH: unix:///rootfs/var/run/docker.sock
+    resources:
+      cpu: ${request_cpu:0.2}
+      mem: ${request_mem:512}
+      max_cpu: 0.2
+      max_mem: 512
+      network:
+        mode: container
+    binds:
+      - ${docker_data_root:/var/lib/docker}/containers:/var/lib/docker/containers:ro
+      - ${platform_data_root:/data}/kube-apiserver/audit-logs:/data/kube-apiserver/audit-logs:ro
+      - ${platform_data_root:/data}/spot-v2/filebeat:/data/spot/filebeat:rw
+      - /var/run:/rootfs/var/run:ro
+    deployments:
+      replicas: 1
+      workload: per_node
+      labels:
+        GROUP: spot-v2
+    health_check:
+      http: {}
+      exec:
+        cmd: ps aux | grep filebeat || exit 1
+        duration: 120
+
+addons:
+  infos:
+    plan: "custom:basic"
+    options:
+      version: "1.0.0"
