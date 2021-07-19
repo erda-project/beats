@@ -1,6 +1,6 @@
 # 日志
 logging:
-  level: ${LOG_LEVEL:info}
+  level: ${LOG_LEVEL:error}
   to_stderr: true
 filebeat.registry:
   path: ${REGISTRY_FILE_PATH:/data/spot/filebeat/data/registry}
@@ -74,6 +74,7 @@ output.collectorV2:
     timeout: "60s"
     compress_level: 9
   bulk_max_size: ${OUTPUT_BULK_MAX_SIZE:256}
+  bulk_max_size_bytes: ${OUTPUT_BULK_MAX_SIZE_BYTES:314572} # must large than inputs[#].max_bytes, default 2MB/compressRatio(50%)
   max_retries: -1
   backoff:
     init: "1s"

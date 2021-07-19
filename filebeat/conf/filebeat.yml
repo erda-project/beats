@@ -1,6 +1,6 @@
 # 日志
 logging:
-  level: ${LOG_LEVEL:info}
+  level: ${LOG_LEVEL:error}
   to_stderr: true
 filebeat.registry:
   path: ${REGISTRY_FILE_PATH:/data/spot/filebeat/data/registry}

@@ -17,7 +17,7 @@ if [ -f "$data_json_file" ]; then
 	mv $data_json_file /tmp/
 fi
 
-cfg_path='conf/filebeat.yml'
+cfg_path='conf/filebeat-v2.yml'
 if [ "$FILEBEAT_CONFIG_PATH" != '' ]; then
 	cfg_path=$FILEBEAT_CONFIG_PATH
 fi

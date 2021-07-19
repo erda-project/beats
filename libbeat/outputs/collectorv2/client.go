@@ -32,6 +32,8 @@ type client struct {
 	observer outputs.Observer
 
 	output *outputLogAnalysis // todo remove
+
+	bulkMaxSizeBytes int
 }
 
 type outputLogAnalysis struct {
@@ -89,13 +91,14 @@ func newClient(host string, cfg config, observer outputs.Observer) (*client, err
 	}
 
 	return &client{
-		enc:          enc,
-		client:       httpClient,
-		jobReq:       jobReq,
-		containerReq: containerReq,
-		observer:     observer,
-		compressor:   compressor,
-		security:     createSecret(cfg.Auth),
+		enc:              enc,
+		client:           httpClient,
+		jobReq:           jobReq,
+		containerReq:     containerReq,
+		observer:         observer,
+		compressor:       compressor,
+		security:         createSecret(cfg.Auth),
+		bulkMaxSizeBytes: cfg.BulkMaxSizeBytes,
 
 		output: &outputLogAnalysis{
 			Client:     outputClient,
@@ -107,14 +110,13 @@ func newClient(host string, cfg config, observer outputs.Observer) (*client, err
 	}, nil
 }
 
-func newRequest(host, path, method string, params, headers map[string]string) (*http.Request, error) {
+func newRequest(url, path, method string, params, headers map[string]string) (*http.Request, error) {
 	values := netUrl.Values{}
 	for key, value := range params {
 		values.Add(key, value)
 	}
 	v := values.Encode()
-	url := host + path
-	url += v
+	url = url + path + v
 
 	req, err := http.NewRequest(method, url, nil)
 	if err != nil {
@@ -211,43 +213,67 @@ func (c *client) publishEvents(events []publisher.Event) ([]publisher.Event, err
 }
 
 func (c *client) sendEvents(events []publisher.Event, isJob bool) ([]publisher.Event, error) {
-	send := convertEvents(events)
-	if len(send.Logs) == 0 {
-		return events, nil
+	for len(events) != 0 {
+		pivot, err := sizeLimit(events, c.bulkMaxSizeBytes)
+		if err != nil {
+			return events, err
+		}
+		send, rest := events[:pivot], events[pivot:]
+
+		// do request
+		var req *http.Request
+		if isJob {
+			req = c.jobReq
+		} else {
+			req = c.containerReq
+		}
+		c.populateRequest(req)
+
+		reader, err := c.serialize(send)
+		if err != nil {
+			return events, err
+		}
+
+		req.Body = ioutil.NopCloser(reader)
+		if c.compressor != nil {
+			req.Header.Add("Content-Encoding", "gzip")
+		}
+
+		c.security.Secure(req)
+
+		resp, err := c.client.Do(req)
+		if err != nil {
+			return events, errors.Errorf("fail to send request, err: %s", err)
+		}
+		closeResponseBody(resp.Body)
+
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return events, errors.Errorf("response status code %v is not success", resp.StatusCode)
+		}
+
+		events = rest
 	}
+	return events, nil
+}
 
-	var req *http.Request
-	if isJob {
-		req = c.jobReq
-	} else {
-		req = c.containerReq
+func sizeLimit(events []publisher.Event, limit int) (int, error) {
+	sum := 0
+	i := 0
+	for ; i < len(events); i++ {
+		if sum > limit {
+			break
+		}
+		content, err := events[i].Content.GetValue("message")
+		if err != nil {
+			return 0, errors.Wrap(err, "event must have a message")
+		}
+		if v, ok := content.(string); !ok {
+			return 0, errors.New("event message must be a string")
+		} else {
+			sum += len(v)
+		}
 	}
-	c.populateRequest(req)
-
-	reader, err := c.serialize(events)
-	if err != nil {
-		return events, err
-	}
-	req.Body = ioutil.NopCloser(reader)
-
-	if c.compressor != nil {
-		req.Header.Add("Content-Encoding", "gzip")
-	}
-
-	// todo auth
-	c.security.Secure(req)
-
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return events, errors.Errorf("fail to send request, err: %s", err)
-	}
-	defer closeResponseBody(resp.Body)
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return events, errors.Errorf("response status code %v is not success", resp.StatusCode)
-	}
-
-	return nil, nil
+	return i, nil
 }
 
 func (c *client) populateRequest(req *http.Request) {

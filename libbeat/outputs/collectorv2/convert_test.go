@@ -40,7 +40,7 @@ func mockClient(enc encoderName) *client {
 			},
 		},
 		Method:        "POST",
-		Timeout:       10,
+		Timeout:       10 * time.Second,
 		MaxRetries:    1,
 		Backoff:       backoff{},
 		CompressLevel: 9,
@@ -115,6 +115,73 @@ func BenchmarkSerializeProtobuf(b *testing.B) {
 	}
 }
 
+type eventMocker struct {
+	events []publisher.Event
+}
+
+func withNumber(num int) func(em *eventMocker) {
+	return func(em *eventMocker) {
+		batch := make([]publisher.Event, num)
+		e := em.events[0]
+		for i := range batch {
+			batch[i] = e
+		}
+		em.events = batch
+		return
+	}
+}
+
+func withMessage(msg string) func(em *eventMocker) {
+	return func(em *eventMocker) {
+		for i := range em.events {
+			em.events[i].Content.Fields["message"] = msg
+		}
+	}
+}
+
+func newEventMocker(ops ...func(em *eventMocker)) *eventMocker {
+	t, _ := time.Parse("2006-01-02T15:04:05.000Z", "2014-11-12T11:45:26.371Z")
+	event := publisher.Event{
+		Content: beat.Event{
+			Timestamp: t,
+			Meta:      nil,
+			Fields: common.MapStr{
+				"terminus": common.MapStr{
+					"tags": common.MapStr{
+						"DICE_CLUSTER_NAME": "terminus-dev",
+						"pod_name":          "dice-qa-7cb5b7fd4-494zb",
+						"pod_namespace":     "default",
+						"container_name":    "qa",
+						"DICE_COMPONENT":    "qa",
+					},
+					"labels": common.MapStr{},
+					"id":     "77e90e85233cb3ec1bfd7655633248056a3fc03e092596c405a5b158cc8885b2",
+					"source": "container",
+				},
+				"log": common.MapStr{
+					"offset": 17420730,
+					"file": common.MapStr{
+						"path": "/var/lib/docker/containers/77e90e85233cb3ec1bfd7655633248056a3fc03e092596c405a5b158cc8885b2/77e90e85233cb3ec1bfd7655633248056a3fc03e092596c405a5b158cc8885b2-json.log",
+					},
+				},
+				"message": "\u001b[37mDEBU\u001b[0m[2021-04-22 14:18:52.265950181] finished handle request GET /health (took 107.411µs) ",
+				"stream":  "stdout",
+			},
+			Private:    nil,
+			TimeSeries: false,
+		},
+		Flags: publisher.GuaranteedSend,
+		Cache: publisher.EventCache{},
+	}
+	em := &eventMocker{events: []publisher.Event{event}}
+
+	for _, op := range ops {
+		op(em)
+	}
+	return em
+}
+
+// Deprecated
 func mockEvent(num int) []publisher.Event {
 	t, _ := time.Parse("2006-01-02T15:04:05.000Z", "2014-11-12T11:45:26.371Z")
 	event := publisher.Event{

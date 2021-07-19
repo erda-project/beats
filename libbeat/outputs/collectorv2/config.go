@@ -23,8 +23,9 @@ type config struct {
 	Limiter       limiterConfig     `config:"limiter"`
 	Output        outputConfig      `config:"output"`
 
-	Encoder      string     `config:"encoder"`
-	Auth         authConfig `config:"auth"`
+	Encoder          string     `config:"encoder"`
+	Auth             authConfig `config:"auth"`
+	BulkMaxSizeBytes int        `config:"bulk_max_size_bytes"`
 }
 
 type authConfig struct {
@@ -78,6 +79,7 @@ var defaultConfig = config{
 		CompressLevel: 9,
 	},
 	Encoder: string(encoderProtobuf),
+	BulkMaxSizeBytes: 2 * 1024 * 1024 * 2,
 }
 
 func (c *config) Validate() error {

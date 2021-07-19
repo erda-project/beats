@@ -11,6 +11,8 @@ import (
 	"github.com/pkg/errors"
 )
 
+var errEmptyLogs = errors.New("empty logs")
+
 type Encoder interface {
 	Encode(batch *pb.LogBatch) ([]byte, error)
 }
@@ -38,7 +40,7 @@ func createEncoder(name encoderName) Encoder {
 func (c *client) serialize(events []publisher.Event) (io.Reader, error) {
 	send := convertEvents(events)
 	if len(send.Logs) == 0 {
-		return nil, errors.New("no data to send")
+		return nil, errEmptyLogs
 	}
 	buf, err := c.enc.Encode(send)
 	if err != nil {
