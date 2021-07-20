@@ -14,7 +14,6 @@ import (
 	"github.com/elastic/beats/v7/libbeat/logp"
 	"github.com/elastic/beats/v7/libbeat/outputs"
 	"github.com/elastic/beats/v7/libbeat/outputs/collectorv2/encoder/protobuf"
-	"github.com/elastic/beats/v7/libbeat/outputs/collectorv2/pb"
 	"github.com/elastic/beats/v7/libbeat/publisher"
 	"github.com/gofrs/uuid"
 	"github.com/pkg/errors"
@@ -42,6 +41,7 @@ type outputLogAnalysis struct {
 	Headers    map[string]string
 	Method     string
 	Compressor *gziper
+	Level      int
 }
 
 func newClient(host string, cfg config, observer outputs.Observer) (*client, error) {
@@ -106,6 +106,7 @@ func newClient(host string, cfg config, observer outputs.Observer) (*client, err
 			Headers:    cfg.Output.Headers,
 			Method:     cfg.Output.Method,
 			Compressor: outputCompressor,
+			Level:      cfg.CompressLevel,
 		},
 	}, nil
 }
@@ -312,68 +313,4 @@ func closeResponseBody(body io.ReadCloser) {
 
 func (c *client) String() string {
 	return selector
-}
-
-// send to log analysis
-// todo remove
-func (c *client) sendOutputEvents(events []publisher.Event) {
-	sendMap := make(map[string][]publisher.Event)
-	for _, event := range events {
-		if v, err := event.Content.GetValue("terminus.output.collector"); err == nil {
-			if addr, ok := v.(string); ok && addr != "" {
-				sendMap[addr] = append(sendMap[addr], event)
-			}
-		}
-	}
-	if len(sendMap) == 0 {
-		return
-	}
-
-	// 根据collector地址全部发送
-	for addr, send := range sendMap {
-		c.sendOutputAddrEvents(addr, send)
-	}
-	return
-}
-
-func (c *client) sendOutputAddrEvents(addr string, events []publisher.Event) {
-	batch := &pb.LogBatch{Logs: make([]*pb.Log, 0, len(events))}
-	for _, event := range events {
-		line, err := convertEvent(event)
-		if err != nil {
-			logp.Err("convertEvent failed, error: %s", err)
-		}
-		batch.Logs = append(batch.Logs, line)
-	}
-
-	req, err := newRequest(addr, "", c.output.Method, c.output.Params, c.output.Headers)
-	if err != nil {
-		logp.Err("fail to create output request %s", addr)
-		return
-	}
-	c.populateRequest(req)
-
-	reader, err := c.serialize(events)
-	if err != nil {
-		logp.Err("fail to encode output %s events: %s", addr, err)
-		return
-	}
-	req.Body = ioutil.NopCloser(reader)
-
-	if c.output.Compressor != nil {
-		req.Header.Add("Content-Encoding", "gzip")
-	}
-
-	resp, err := c.output.Client.Do(req)
-
-	if err != nil {
-		logp.Err("fail to send %s output: %s", addr, err)
-		return
-	}
-	defer closeResponseBody(resp.Body)
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		logp.Err("output %s response status is not success, code is %v", addr, resp.StatusCode)
-		return
-	}
 }
